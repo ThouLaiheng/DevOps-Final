@@ -1,0 +1,68 @@
+---
+- name: Deploy and Test Web Server
+  hosts: web
+  become: no
+  vars:
+    project_path: "/home/laiheng/DevOps-Final"
+    mysql_db: "THOU_Laiheng-db"
+    mysql_user: "root"
+    mysql_password: "Hello@123"
+    backup_path: "/home/laiheng/backups"
+
+  tasks:
+    - name: Ensure backup directory exists
+      file:
+        path: "{{ backup_path }}"
+        state: directory
+        mode: '0755'
+      become: yes
+
+    - name: Reset local changes
+      command: git reset --hard
+      args:
+        chdir: "{{ project_path }}"
+
+    - name: Pull latest changes from git
+      git:
+        repo: 'git@github.com:ThouLaiheng/DevOps-Final.git'
+        dest: "{{ project_path }}"
+        version: main
+        force: yes
+        accept_hostkey: yes
+
+    - name: Ensure composer.json exists
+      copy:
+        content: '{"name": "fieldrental/field-rental", "require": {}}'
+        dest: "{{ project_path }}/composer.json"
+        force: no
+
+    - name: Ensure package.json exists
+      copy:
+        content: '{"name": "field-rental", "version": "1.0.0", "scripts": {"build": "echo Building..."}}'
+        dest: "{{ project_path }}/package.json"
+        force: no
+
+    - name: Build composer
+      command: composer install --no-interaction --prefer-dist --optimize-autoloader
+      args:
+        chdir: "{{ project_path }}"
+
+    - name: Build npm
+      shell: npm install && npm run build
+      args:
+        chdir: "{{ project_path }}"
+
+    - name: Run tests against SQLite
+      command: mvn test -Dspring.profiles.active=test
+      args:
+        chdir: "{{ project_path }}"
+
+    - name: Install mysql-client
+      apt:
+        name: mysql-client
+        state: present
+      become: yes
+
+    - name: Backup MySQL Database
+      shell: "mysqldump -h 127.0.0.1 -P 3307 -u {{ mysql_user }} -p'{{ mysql_password }}' {{ mysql_db }} > {{ backup_path }}/db_backup_{{ ansible_date_time.epoch }}.sql"
+      become: yes
